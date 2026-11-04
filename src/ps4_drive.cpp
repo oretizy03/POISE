@@ -1,45 +1,45 @@
 /*
- * PS4 Drive (ESP32 self-balancing robot)
+ * PS4 Drive (ESP32 self-balancing robot) - D-pad, pulse version
 
  * WHAT IT DOES:
     The PID balancing sketch plus Bluetooth driving from a PS4 controller. The
-    sticks never command the wheels directly. They move the balance target:
-      - Left stick Y  -> target lean angle (forward / back), kept inside the permissible lean limits (maxLeanFwd / maxLeanBack)
-      - Right stick X -> steering (a left/right wheel difference on top of the balance output; balance always has priority)
+    D-pad never commands the wheels directly. Each press "kicks" the balance
+    loop and lets it catch itself:
+      - D-pad Up / Down    -> a short lean pulse forward / back (PULSE_MS), repeated every
+                              PULSE_MS + PULSE_GAP_MS while held. Pulse height = maxLeanFwd / maxLeanBack.
+      - D-pad Left / Right -> a short differential wheel pulse (TURN_PULSE_MS), repeated while held
+                              (set TURN_PULSED 0 for a continuous held turn instead).
+                              Balance always has priority; steering keeps TURN_MIN_ROOM PWM of authority.
 
-    The robot then drives itself by holding that lean. Uses the saved MPU6050
-    calibration (MpuCal.h), the saved PS4 stick calibration (Ps4Cal.h) and the
-    motor speed match (RIGHT_REF_PWM, LEFT_MATCH_PWM).
+    Uses the saved MPU6050 calibration (MpuCal.h) and the motor speed match (RIGHT_REF_PWM, LEFT_MATCH_PWM).
 
  * HOW TO USE:
-    1. Run the MPU calibration tool, then the PS4 calibration tool (both save
-       to flash). Make sure MpuCal.h and Ps4Cal.h are in include/.
+    1. Run the MPU calibration tool (saves to flash). Make sure MpuCal.h and Ps4Input.h are in include/.
     2. Upload. Keep the robot still until the "ready" beep, then hold it
        upright. It engages after 1 s of steady hold.
-    3. Press the PS button on a paired controller (blue lightbar = connected,
-       waiting; green = balancing).
+    3. Pair the controller (hold Share + PS until the lightbar double-flashes).
+       Blue lightbar = connected, waiting; green = balancing.
     Serial (115200, ENTER to send):
        pVALUE, iVALUE, dVALUE, tVALUE - set Kp / Ki / Kd / balance trim (deg)
-       fVALUE - max FORWARD lean the sticks may command (deg)
-       bVALUE - max BACKWARD lean the sticks may command (deg)
-       wVALUE - max steering authority (PWM)
+       fVALUE - lean pulse height FORWARD (deg)
+       bVALUE - lean pulse height BACKWARD (deg)
+       wVALUE - steering pulse height (PWM)
        s - save all of the above to flash (shares the "pid" values with the balancing sketch)
        v - telemetry on/off
        ? - print current values
 
  * CONTROLS:
-    1. Left stick Y - lean forward / back
-    2. Right stick X - steer
+    1. D-pad Up / Down - kick forward / back
+    2. D-pad Left / Right - kick left / right
     3. L1 (hold) - gentle mode: half the lean and half the steering
     4. Circle - stop: motors off. Hold the robot upright 1 s to re-engage.
-    5. Controller lost or out of range: lean and steering fade to 0, the robot keeps balancing in place.
+    5. Controller lost or out of range: commands fade to 0, the robot keeps balancing in place.
 
  * BEEPS:
     2 short - startup (before anything is loaded)
     1 medium - saved calibration loaded (startup)
     1 short - gyro zeroed, ready: hold the robot upright
     2 long - gyro zero rejected (robot moved), saved bias used
-    4 quick - PS4 calibration missing: sticks disabled, robot still balances
     3 quick - balancing engaged
     1 long - fell over, motors off
     1 medium - Circle pressed, motors off
@@ -50,12 +50,13 @@
     5 quick, repeating - MPU6050 not found (halted)
 
  * NOTE:
-    A held lean is a held ACCELERATION, not a held speed: there is no wheel speed loop, so the robot speeds up for as long as the stick is held. Two guards keep that safe: the lean allowance shrinks as the motors approach full PWM, and the lean target is slew-limited. Keep the lean limits small. Positive angle = leaning forward. Loop rate and filter match the calibration tool (250 Hz, 0.98). Needs the PS4-esp32 (PS4Controller) library, i.e. Classic Bluetooth on a plain ESP32 with Arduino-ESP32 core 2.x.
+    There is no wheel speed loop, so a held lean would be a held ACCELERATION. Pulsing the lean avoids that: the robot tips, steps to catch itself, and the balance loop settles it. Tune PULSE_MS for step size and PULSE_GAP_MS for how long it gets to settle between steps. Keep the lean limits small. Positive angle = leaning forward. Loop rate and filter match the calibration tool (250 Hz, 0.98). Uses Bluepad32 through Ps4Input.h.
 */
 
 #include <Arduino.h>
+#include <Preferences.h>
 #include "MpuCal.h"
-#include "Ps4Cal.h"
+#include "Ps4Input.h"
 
 #if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
   #define CORE3 1
@@ -89,22 +90,32 @@
 #define I_MAX 80.0f
 
 // Remote settings
-#define CTRL_MAC ""
-#define THROTTLE_AXIS P4AX_LY         // stick that commands lean
-#define STEER_AXIS    P4AX_RX         // stick that commands steering
 #define STEER_DIR 1                   // -1 if the robot turns the wrong way
-#define STICK_EXPO 0.3f               // 0 = linear, 1 = cubic (softer around centre)
 #define GENTLE_SCALE 0.5f             // L1 held
+
+// Lean pulses (forward / back)
+#define PULSE_MS 150                  // length of each lean pulse
+#define PULSE_GAP_MS 200              // rest between pulses while a button is held
+
+// Steering pulses (left / right)
+#define TURN_PULSED 0                 // 1 = short differential pulses, 0 = continuous held turn
+#define TURN_PULSE_MS 100             // length of each steering pulse
+#define TURN_GAP_MS 150               // rest between steering pulses while held
+#define TURN_MIN_ROOM 60.0f           // PWM of steering always allowed, even when balance saturates
 
 // Permissible lean (deg from the balance point) and steering limits
 #define MAX_LEAN_FWD_DEFAULT 3.0f
 #define MAX_LEAN_BACK_DEFAULT 3.0f
 #define LEAN_HARD_CAP 10.0f           // serial can never raise a lean limit above this
-#define MAX_TURN_DEFAULT 50.0f        // PWM, same scale as the balance output
+#define MAX_TURN_DEFAULT 100.0f       // PWM, same scale as the balance output
 #define TURN_HARD_CAP 120.0f
-#define LEAN_SLEW_UP_DPS 8.0f         // deg/s, lean command growing away from 0
-#define LEAN_SLEW_DOWN_DPS 30.0f      // deg/s, lean command returning toward 0 or reversing
-#define TURN_SLEW_PER_S 400.0f        // PWM/s
+#define LEAN_SLEW_UP_DPS 40.0f        // deg/s, lean command growing away from 0 (fast enough for a pulse)
+#define LEAN_SLEW_DOWN_DPS 60.0f      // deg/s, lean command returning toward 0 or reversing
+#if TURN_PULSED
+  #define TURN_SLEW_PER_S 2000.0f     // PWM/s, fast so a short pulse reaches its height
+#else
+  #define TURN_SLEW_PER_S 400.0f      // PWM/s
+#endif
 #define SAT_START 0.80f               // lean allowance shrinks once |output| passes this fraction of 255
 #define SAT_TAU 0.15f                 // s, smoothing of the output magnitude used for that
 
@@ -123,11 +134,10 @@ static float maxTurn = MAX_TURN_DEFAULT;
 
 Adafruit_MPU6050 mpu;
 MpuCalibration cal;
-Ps4Calibration pcal;
 
 static float angle = 0.0f, iTerm = 0.0f, lastOut = 0.0f;
 static float leanCmd = 0.0f, turnCmd = 0.0f, uMag = 0.0f;
-static bool engaged = false, holding = false, telemetry = false, stickOk = false;
+static bool engaged = false, holding = false, telemetry = false;
 static uint32_t holdStart = 0, lastUs = 0, lastTel = 0;
 
 static float clampf(float v, float lo, float hi)
@@ -324,7 +334,7 @@ static void savePid()
 // Serial tuning
 static void printSettings()
 {
-  Serial.printf("Kp=%.3f Ki=%.3f Kd=%.3f trim=%.2f | lean max fwd=%.1f back=%.1f deg, turn max=%.0f | balance=%.3f deg gyroBiasY=%.4f deg/s | sticks %s\n", kp, ki, kd, trim, maxLeanFwd, maxLeanBack, maxTurn, cal.balanceAngle, cal.gyroBias[1] * RAD_TO_DEG, stickOk ? "calibrated" : "DISABLED (no PS4 calibration)");
+  Serial.printf("Kp=%.3f Ki=%.3f Kd=%.3f trim=%.2f | pulse lean fwd=%.1f back=%.1f deg, turn=%.0f PWM | balance=%.3f deg gyroBiasY=%.4f deg/s\n", kp, ki, kd, trim, maxLeanFwd, maxLeanBack, maxTurn, cal.balanceAngle, cal.gyroBias[1] * RAD_TO_DEG);
 }
 
 static void handleCmd(char *s)
@@ -372,23 +382,49 @@ static void readSerial()
 }
 
 // Remote
-// Reads the sticks and returns the wanted lean (deg from balance point) and steering (PWM).
-// Always 0 when the controller is not connected or has no calibration.
+// One pulse generator per axis. dir = +1 / -1 / 0 (button state).
+// While a button is held it fires a pulse of onMs, then rests gapMs, then fires again.
+struct Pulser
+{
+  uint32_t start = 0;
+  int dir = 0;
+};
+
+static float pulseOut(Pulser &p, int dir, float pos, float neg, uint32_t onMs, uint32_t gapMs)
+{
+  uint32_t now = millis();
+
+  if (dir != 0 && now - p.start >= onMs + gapMs)
+  {
+    p.dir = dir;
+    p.start = now;
+  }
+  if (p.dir != 0 && now - p.start < onMs) return p.dir > 0 ? pos : -neg;
+  return 0.0f;
+}
+
+// Reads the D-pad and returns the wanted lean (deg from balance point) and steering (PWM).
+// Always 0 when the controller is not connected.
 static void readRemote(float &leanTarget, float &turnTarget)
 {
+  static Pulser leanP, turnP;
+
   leanTarget = 0.0f;
   turnTarget = 0.0f;
-  if (!stickOk || !PS4.isConnected()) return;
+  if (!PS4.isConnected()) return;
 
   float scale = PS4.L1() ? GENTLE_SCALE : 1.0f;
 
-  float fwd = pcal.fwdSign * ps4Norm(pcal, THROTTLE_AXIS, ps4Raw(THROTTLE_AXIS));
-  float str = pcal.rightSign * ps4Norm(pcal, STEER_AXIS, ps4Raw(STEER_AXIS)) * STEER_DIR;
-  fwd = ps4Expo(fwd, STICK_EXPO);
-  str = ps4Expo(str, STICK_EXPO);
+  int leanDir = (PS4.Up() ? 1 : 0) - (PS4.Down() ? 1 : 0);
+  int turnDir = (PS4.Right() ? 1 : 0) - (PS4.Left() ? 1 : 0);
 
-  leanTarget = (fwd >= 0.0f ? fwd * maxLeanFwd : fwd * maxLeanBack) * scale;
-  turnTarget = str * maxTurn * scale;
+  leanTarget = pulseOut(leanP, leanDir, maxLeanFwd, maxLeanBack, PULSE_MS, PULSE_GAP_MS) * scale;
+
+#if TURN_PULSED
+  turnTarget = pulseOut(turnP, turnDir, maxTurn, maxTurn, TURN_PULSE_MS, TURN_GAP_MS) * scale * STEER_DIR;
+#else
+  turnTarget = turnDir * maxTurn * scale * STEER_DIR;
+#endif
 }
 
 static float slewTo(float cur, float target, float maxStep)
@@ -396,7 +432,7 @@ static float slewTo(float cur, float target, float maxStep)
   return cur + clampf(target - cur, -maxStep, maxStep);
 }
 
-// Lean grows slowly away from 0 and comes back fast
+// Lean grows fast away from 0 (so a short pulse reaches its height) and comes back faster
 static float slewLean(float cur, float target, float dt)
 {
   bool growing = (fabsf(target) > fabsf(cur)) && (target * cur >= 0.0f);
@@ -414,7 +450,7 @@ static void remoteStatus()
   if (conn != was)
   {
     was = conn;
-    Serial.println(conn ? "PS4 connected" : "PS4 lost: lean and steering fade to 0, still balancing");
+    Serial.println(conn ? "PS4 connected" : "PS4 lost: commands fade to 0, still balancing");
     if (conn) beep(1, 40);
     else      beep(2, 40, 80);
   }
@@ -474,16 +510,7 @@ void setup()
   beepWait();
 
   // Bluetooth starts after the gyro zeroing so it cannot disturb it
-  stickOk = ps4CalLoad(pcal);
-  if (strlen(CTRL_MAC)) PS4.begin(CTRL_MAC);
-  else                  PS4.begin();
-
-  if (!stickOk)
-  {
-    Serial.println("PS4 calibration missing: sticks disabled, the robot still balances. Run the PS4 calibration tool.");
-    beep(4, 60, 60);
-    beepWait();
-  }
+  PS4.begin();
 
   float rate;
   readImu(angle, rate);
@@ -494,6 +521,15 @@ void setup()
 
 void loop()
 {
+  // Service Bluepad32 every 2 ms. Calling it flat out (thousands of times a
+  // second) can starve the Bluetooth task of the lock it needs to hand over data.
+  static uint32_t lastBp = 0;
+  uint32_t ms = millis();
+  if (ms - lastBp >= 2)
+  {
+    lastBp = ms;
+    PS4.update();
+  }
   beepUpdate();
   readSerial();
   remoteStatus();
@@ -567,13 +603,14 @@ void loop()
     lastOut = u;
     uMag += (fabsf(u) - uMag) * (dt / (SAT_TAU + dt));
 
-    float room = 255.0f - fabsf(u);
+    // Steering always keeps some authority, even when balance saturates a wheel
+    float room = max(255.0f - fabsf(u), TURN_MIN_ROOM);
     drive(u, clampf(turnCmd, -room, room));
   }
 
   if (telemetry && millis() - lastTel >= 100)
   {
     lastTel = millis();
-    Serial.printf("ANGLE=%8.3f  ACCEL=%8.3f  RATE=%9.3f  LEAN=%6.2f  TURN=%5.0f  OUT=%5.0f  PAD=%d  %s\n",angle, accAngle, rate, leanCmd, turnCmd, lastOut, PS4.isConnected(), engaged ?  "RUN" : "WAIT");
+    Serial.printf("ANGLE=%8.3f  ACCEL=%8.3f  RATE=%9.3f  LEAN=%6.2f  TURN=%5.0f  OUT=%5.0f  PAD=%d  DATA=%d  DPAD=0x%02X  %s\n", angle, accAngle, rate, leanCmd, turnCmd, lastOut, PS4.isConnected(), PS4.hasData(), PS4.dpadRaw(), engaged ? "RUN" : "WAIT");
   }
 }
