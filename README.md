@@ -160,9 +160,22 @@ Run the stages in order. Usage steps are in the header comment of each sketch.
 The matched PWM values are set in the balancing sketches as `RIGHT_REF_PWM` (200) and `LEFT_MATCH_PWM` (140).
 
 
-| Motor speed matching and test | PID balancing |
-|---|---|
-| [▶ Watch video](resources/matching.mp4) | [▶ Watch video](resources/PID_Balancing.mp4) |
+<p align="center">
+  <table>
+    <tr>
+      <td align="center">
+        <img src="resources/matching.gif" width="400">
+      </td>
+      <td align="center">
+        <img src="resources/PID_Balancing.gif" width="400">
+      </td>
+    </tr>
+    <tr>
+      <td align="center"><sub>Motor speed matching and test</sub></td>
+      <td align="center"><sub>PID balancing</sub></td>
+    </tr>
+  </table>
+</p>
 
 ---
 
