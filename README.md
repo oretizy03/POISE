@@ -201,7 +201,7 @@ The D-pad never commands the wheels directly. Each press nudges the balance loop
 | Circle           | Stop: motors off, hold the robot upright for 1 s to re-engage         |
 | Controller lost  | Commands fade to zero and the robot keeps balancing in place          |
 
-<p align="center" width="100%" height="auto">
+<p align="left" width="100%" height="auto">
   <img src="resources/driving.gif">
 </p>
 
