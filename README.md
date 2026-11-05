@@ -201,10 +201,8 @@ The D-pad never commands the wheels directly. Each press nudges the balance loop
 | Circle           | Stop: motors off, hold the robot upright for 1 s to re-engage         |
 | Controller lost  | Commands fade to zero and the robot keeps balancing in place          |
 
-<p align="center">
-  <video src="resources/driving.mp4" controls muted width="60%">
-    <a href="resources/driving.mp4">Poise driven with the PS4 controller (video)</a>
-  </video>
+<p align="center" width="100%" height="auto">
+  <img src="resources/driving.gif">
 </p>
 
 ### Code overview
@@ -303,4 +301,4 @@ build_src_filter = -<*> +<encoder_test.cpp>
 
 ## Author
 
-Oreoluwa Oyedele - [oretizy03](https://github.com/oretizy03)
+[Oreoluwa Oyedele](https://github.com/oretizy03)
