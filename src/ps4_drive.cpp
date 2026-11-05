@@ -14,13 +14,14 @@
     Uses the saved MPU6050 calibration (MpuCal.h) and the motor speed match (RIGHT_REF_PWM, LEFT_MATCH_PWM).
 
  * HOW TO USE:
-    1. Run the MPU calibration tool (saves to flash). Make sure MpuCal.h and Ps4Input.h are in include/.
-    2. Upload. Keep the robot still until the "ready" beep, then hold it
-       upright. It engages after 1 s of steady hold.
-    3. Pair the controller (hold Share + PS until the lightbar double-flashes).
-       Blue lightbar = connected, waiting; green = balancing.
+    1. Run the MPU calibration tool (saves to flash). Make sure MpuCal.h and Ps4Input.h are in
+      include/.
+    2. Upload. Keep the robot still until the "ready" beep, then hold it upright. It engages after
+       1 s of steady hold.
+    3. Pair the controller (hold Share + PS until the lightbar double-flashes). Blue lightbar =
+       connected, waiting; green = balancing.
     Serial (115200, ENTER to send):
-       pVALUE, iVALUE, dVALUE, tVALUE - set Kp / Ki / Kd / balance trim (deg)
+       pVALUE, iVALUE, dVALUE, tVALUE - set Kp / Ki / Kd / balance trim (deg) e.g. p20
        fVALUE - lean pulse height FORWARD (deg)
        bVALUE - lean pulse height BACKWARD (deg)
        wVALUE - steering pulse height (PWM)
@@ -90,34 +91,34 @@
 #define I_MAX 80.0f
 
 // Remote settings
-#define STEER_DIR 1                   // -1 if the robot turns the wrong way
-#define GENTLE_SCALE 0.5f             // L1 held
+#define STEER_DIR 1 // -1 if the robot turns the wrong way
+#define GENTLE_SCALE 0.5f // L1 held
 
 // Lean pulses (forward / back)
-#define PULSE_MS 150                  // length of each lean pulse
-#define PULSE_GAP_MS 200              // rest between pulses while a button is held
+#define PULSE_MS 150   // length of each lean pulse
+#define PULSE_GAP_MS 200  // rest between pulses while a button is held
 
 // Steering pulses (left / right)
-#define TURN_PULSED 0                 // 1 = short differential pulses, 0 = continuous held turn
-#define TURN_PULSE_MS 100             // length of each steering pulse
-#define TURN_GAP_MS 150               // rest between steering pulses while held
-#define TURN_MIN_ROOM 60.0f           // PWM of steering always allowed, even when balance saturates
+#define TURN_PULSED 0    // 1 = short differential pulses, 0 = continuous held turn
+#define TURN_PULSE_MS 100 // length of each steering pulse
+#define TURN_GAP_MS 150 // rest between steering pulses while held
+#define TURN_MIN_ROOM 60.0f // PWM of steering always allowed, even when balance saturates
 
 // Permissible lean (deg from the balance point) and steering limits
 #define MAX_LEAN_FWD_DEFAULT 3.0f
 #define MAX_LEAN_BACK_DEFAULT 3.0f
-#define LEAN_HARD_CAP 10.0f           // serial can never raise a lean limit above this
-#define MAX_TURN_DEFAULT 100.0f       // PWM, same scale as the balance output
+#define LEAN_HARD_CAP 10.0f // serial can never raise a lean limit above this
+#define MAX_TURN_DEFAULT 100.0f // PWM, same scale as the balance output
 #define TURN_HARD_CAP 120.0f
-#define LEAN_SLEW_UP_DPS 40.0f        // deg/s, lean command growing away from 0 (fast enough for a pulse)
-#define LEAN_SLEW_DOWN_DPS 60.0f      // deg/s, lean command returning toward 0 or reversing
+#define LEAN_SLEW_UP_DPS 40.0f   // deg/s, lean command growing away from 0 (fast enough for a pulse)
+#define LEAN_SLEW_DOWN_DPS 60.0f  // deg/s, lean command returning toward 0 or reversing
 #if TURN_PULSED
-  #define TURN_SLEW_PER_S 2000.0f     // PWM/s, fast so a short pulse reaches its height
+  #define TURN_SLEW_PER_S 2000.0f  // PWM/s, fast so a short pulse reaches its height
 #else
-  #define TURN_SLEW_PER_S 400.0f      // PWM/s
+  #define TURN_SLEW_PER_S 400.0f  // PWM/s
 #endif
-#define SAT_START 0.80f               // lean allowance shrinks once |output| passes this fraction of 255
-#define SAT_TAU 0.15f                 // s, smoothing of the output magnitude used for that
+#define SAT_START 0.80f // lean allowance shrinks once |output| passes this fraction of 255
+#define SAT_TAU 0.15f // s, smoothing of the output magnitude used for that
 
 static const float ALPHA = 0.98f;
 static const float LEFT_SCALE = (float)LEFT_MATCH_PWM / RIGHT_REF_PWM;

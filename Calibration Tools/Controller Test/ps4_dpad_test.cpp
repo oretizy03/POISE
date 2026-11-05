@@ -6,7 +6,7 @@
  * (hold Share + PS until the lightbar double-flashes).
  *
  * Prints a line whenever dpad / buttons / misc buttons change, and a status
- * line every 2 s so you can tell "connected, nothing pressed" from "no data".
+ * line every 2s so you can tell "connected, nothing pressed" from "no data".
  *
  * Expected: UP=0x01 DOWN=0x02 RIGHT=0x04 LEFT=0x08.
  * Circle -> b, L1 -> l1. Pressing Share or Options shows the misc value.
